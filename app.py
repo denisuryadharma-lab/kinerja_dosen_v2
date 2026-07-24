@@ -97,6 +97,48 @@ def trend_delta(df,name_col,sem_col,metric,name):
     if len(q)<2:return np.nan,q.iloc[-1][sem_col],None
     return q.iloc[-1][metric]-q.iloc[-2][metric],q.iloc[-1][sem_col],q.iloc[-2][sem_col]
 
+
+def prodi_section(f, name, sem, fak, prodi, kin, extra_metrics, title):
+    if not prodi or prodi not in f.columns or f.empty: return
+    st.subheader("🏫 " + title)
+    keys=[prodi]+([fak] if fak else [])
+    agg={"Jumlah Kelas":(prodi,"size"),"Jumlah Dosen":(name,"nunique"),"Kinerja":(kin,"mean")}
+    for label,col in extra_metrics:
+        if col and col in f.columns: agg[label]=(col,"mean")
+    p=f.groupby(keys,dropna=False).agg(**agg).reset_index().sort_values("Kinerja")
+    p["Kategori"]=p["Kinerja"].apply(status)
+
+    fig=px.bar(p,x="Kinerja",y=prodi,orientation="h",color="Kategori",
+        hover_data=[c for c in [fak,"Jumlah Kelas","Jumlah Dosen"] if c],
+        title="Rata-rata Kinerja per Program Studi",
+        color_discrete_map={"Hijau • Baik":"#2e8b57","Kuning • Perlu perhatian":"#e0a800","Merah • Perlu tindak lanjut":"#c94b45"})
+    fig.update_xaxes(range=[0,100],title="Rata-rata Kinerja (%)")
+    fig.update_yaxes(title="")
+    fig.update_layout(height=max(500,28*len(p)),legend_title_text="Kategori")
+    st.plotly_chart(fig,use_container_width=True)
+
+    low=p.nsmallest(15,"Kinerja").copy()
+    for c in ["Kinerja"]+[x[0] for x in extra_metrics]:
+        if c in low: low[c]=low[c].round(1)
+    st.markdown("#### ⚠️ Prodi Perlu Perhatian — 15 Rata-rata Kinerja Terendah")
+    st.caption("Urutan berdasarkan rata-rata % kinerja terendah pada filter/periode yang dipilih.")
+    st.dataframe(low,use_container_width=True,hide_index=True)
+
+    if sem and sem in f.columns:
+        q=f.groupby([prodi,sem],as_index=False)[kin].mean(); q["_k"]=q[sem].map(semester_key)
+        rows=[]
+        for pr,g in q.groupby(prodi):
+            g=g.sort_values("_k")
+            if len(g)>=2:
+                cur,pre=g.iloc[-1],g.iloc[-2]; d=cur[kin]-pre[kin]
+                rows.append({"Prodi":pr,"Semester Terbaru":cur[sem],"Kinerja Terbaru":round(cur[kin],1),
+                    "Semester Sebelumnya":pre[sem],"Kinerja Sebelumnya":round(pre[kin],1),
+                    "Perubahan (poin)":round(d,1),"Indikator":"↑ Meningkat" if d>0.5 else ("↓ Menurun" if d<-0.5 else "→ Stabil")})
+        if rows:
+            st.markdown("#### ↕️ Perubahan Kinerja Prodi vs Semester Sebelumnya")
+            st.dataframe(pd.DataFrame(rows).sort_values("Perubahan (poin)"),use_container_width=True,hide_index=True)
+
+
 def page_perkuliahan():
     df=read_excel_auto(PER_FILE)
     if df.empty: st.error(f"File {PER_FILE} tidak ditemukan.");return
@@ -110,6 +152,8 @@ def page_perkuliahan():
     c1,c2,c3,c4=st.columns(4)
     c1.metric("Dosen",f[name].nunique());c2.metric("Kehadiran",f"{f[hadir].mean():.1f}%");c3.metric("Ketepatan",f"{f[tepat].mean():.1f}%");c4.metric("Kinerja",f"{f[kin].mean():.1f}%")
     agg=f.groupby(name,as_index=False).agg(Kelas=(name,"size"),Kehadiran=(hadir,"mean"),Ketepatan=(tepat,"mean"),Kinerja=(kin,"mean"))
+    prodi_section(f,name,sem,fak,prodi,kin,[("Kehadiran",hadir),("Ketepatan",tepat)],"Kinerja Program Studi — Perkuliahan")
+    prodi_section(f,name,sem,fak,prodi,kin,[("Upload Soal",upload),("Kehadiran Ujian",hadir),("Entry Nilai",entry)],"Kinerja Program Studi — Ujian")
     st.subheader("🏆 Ranking Dosen")
     a,b=st.columns(2)
     with a: st.markdown("**Top 10 Kinerja Tertinggi**");st.dataframe(ranking_table(agg,"Kinerja")[["Peringkat",name,"Kelas","Kehadiran","Ketepatan","Kinerja"]].round(1),use_container_width=True,hide_index=True)
