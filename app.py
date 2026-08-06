@@ -136,11 +136,13 @@ def render_prodi_section(f, prodi_col, sem_col, kin_col):
         return
     show=pt[["Prodi","Semester Terakhir","Kinerja Terakhir (%)","Semester Sebelumnya","Kinerja Sebelumnya (%)","Perubahan (poin)","Tren","Status"]].round(1)
     st.dataframe(show,use_container_width=True,hide_index=True)
-    figp=px.bar(pt,x="Prodi",y="Kinerja Terakhir (%)",color="Perubahan (poin)",
-                color_continuous_scale=["#b53b34","#f2f2ee","#147a4b"],color_continuous_midpoint=0,
+    tren_colors={"▲ Naik":"#16a34a","▼ Turun":"#dc2626","— Tetap":"#94a3b8","N/A":"#cbd5e1"}
+    pt_plot=pt.copy();pt_plot["Perubahan (poin)"]=pt_plot["Perubahan (poin)"].round(1)
+    figp=px.bar(pt_plot,x="Prodi",y="Kinerja Terakhir (%)",color="Tren",
+                color_discrete_map=tren_colors,category_orders={"Tren":["▲ Naik","▼ Turun","— Tetap","N/A"]},
                 title="Kinerja Prodi (Semester Terakhir) & Perubahan vs Semester Sebelumnya",
-                hover_data={"Tren":True,"Perubahan (poin)":":.1f"})
-    figp.update_yaxes(range=[0,100])
+                hover_data={"Perubahan (poin)":True})
+    figp.update_yaxes(range=[0,100]);figp.update_layout(legend_title_text="Tren")
     st.plotly_chart(figp,use_container_width=True)
     naik=int((pt["Perubahan (poin)"]>0).sum());turun=int((pt["Perubahan (poin)"]<0).sum());tetap=int((pt["Perubahan (poin)"]==0).sum())
     st.markdown(f'<span class="small-note">📈 {naik} prodi naik · 📉 {turun} prodi turun · ➖ {tetap} prodi tetap dibanding semester sebelumnya.</span>',unsafe_allow_html=True)
@@ -158,14 +160,14 @@ def page_perkuliahan():
     c1,c2,c3,c4=st.columns(4)
     c1.metric("Dosen",f[name].nunique());c2.metric("Kehadiran",f"{f[hadir].mean():.1f}%");c3.metric("Ketepatan",f"{f[tepat].mean():.1f}%");c4.metric("Kinerja",f"{f[kin].mean():.1f}%")
     agg=f.groupby(name,as_index=False).agg(Kelas=(name,"size"),Kehadiran=(hadir,"mean"),Ketepatan=(tepat,"mean"),Kinerja=(kin,"mean"))
-    st.subheader("🏆 Ranking Dosen")
-    a,b=st.columns(2)
-    with a: st.markdown("**Top 10 Kinerja Tertinggi**");st.dataframe(ranking_table(agg,"Kinerja")[["Peringkat",name,"Kelas","Kehadiran","Ketepatan","Kinerja"]].round(1),use_container_width=True,hide_index=True)
-    with b: st.markdown("**Bottom 10 Kinerja Terendah**");st.dataframe(ranking_table(agg,"Kinerja",ascending=True)[["Peringkat",name,"Kelas","Kehadiran","Ketepatan","Kinerja"]].round(1),use_container_width=True,hide_index=True)
     st.subheader("📈 Tren Kinerja Semester")
     tr=f.groupby(sem,as_index=False)[[hadir,tepat,kin]].mean();tr["_k"]=tr[sem].map(semester_key);tr=tr.sort_values("_k")
     fig=px.line(tr,x=sem,y=[hadir,tepat,kin],markers=True);fig.update_yaxes(range=[0,100]);st.plotly_chart(fig,use_container_width=True)
     render_prodi_section(f,prodi,sem,kin)
+    st.subheader("🏆 Ranking Dosen")
+    a,b=st.columns(2)
+    with a: st.markdown("**Top 10 Kinerja Tertinggi**");st.dataframe(ranking_table(agg,"Kinerja")[["Peringkat",name,"Kelas","Kehadiran","Ketepatan","Kinerja"]].round(1),use_container_width=True,hide_index=True)
+    with b: st.markdown("**Bottom 10 Kinerja Terendah**");st.dataframe(ranking_table(agg,"Kinerja",ascending=True)[["Peringkat",name,"Kelas","Kehadiran","Ketepatan","Kinerja"]].round(1),use_container_width=True,hide_index=True)
     st.subheader("🔎 Cari Kinerja Dosen")
     q=st.text_input("Nama dosen",placeholder="Ketik nama dosen...",key="qper")
     names=sorted(f[name].dropna().astype(str).unique()); matches=[x for x in names if q.lower() in x.lower()] if q else []
@@ -195,14 +197,14 @@ def page_ujian():
     c1,c2,c3,c4,c5=st.columns(5)
     c1.metric("Dosen",f[name].nunique());c2.metric("Upload Soal",f"{f[upload].mean():.1f}%");c3.metric("Kehadiran",f"{f[hadir].mean():.1f}%");c4.metric("Entry Nilai",f"{f[entry].mean():.1f}%");c5.metric("Kinerja",f"{f[kin].mean():.1f}%")
     agg=f.groupby(name,as_index=False).agg(Kelas=(name,"size"),Upload=(upload,"mean"),Kehadiran=(hadir,"mean"),Entry=(entry,"mean"),Kinerja=(kin,"mean"))
-    st.subheader("🏆 Ranking Dosen")
-    a,b=st.columns(2)
-    with a:st.markdown("**Top 10 Kinerja Tertinggi**");st.dataframe(ranking_table(agg,"Kinerja")[["Peringkat",name,"Kelas","Upload","Kehadiran","Entry","Kinerja"]].round(1),use_container_width=True,hide_index=True)
-    with b:st.markdown("**Bottom 10 Kinerja Terendah**");st.dataframe(ranking_table(agg,"Kinerja",ascending=True)[["Peringkat",name,"Kelas","Upload","Kehadiran","Entry","Kinerja"]].round(1),use_container_width=True,hide_index=True)
     st.subheader("📈 Tren Kinerja Semester")
     tr=f.groupby(sem,as_index=False)[[upload,hadir,entry,kin]].mean();tr["_k"]=tr[sem].map(semester_key);tr=tr.sort_values("_k")
     fig=px.line(tr,x=sem,y=[upload,hadir,entry,kin],markers=True);fig.update_yaxes(range=[0,100]);st.plotly_chart(fig,use_container_width=True)
     render_prodi_section(f,prodi,sem,kin)
+    st.subheader("🏆 Ranking Dosen")
+    a,b=st.columns(2)
+    with a:st.markdown("**Top 10 Kinerja Tertinggi**");st.dataframe(ranking_table(agg,"Kinerja")[["Peringkat",name,"Kelas","Upload","Kehadiran","Entry","Kinerja"]].round(1),use_container_width=True,hide_index=True)
+    with b:st.markdown("**Bottom 10 Kinerja Terendah**");st.dataframe(ranking_table(agg,"Kinerja",ascending=True)[["Peringkat",name,"Kelas","Upload","Kehadiran","Entry","Kinerja"]].round(1),use_container_width=True,hide_index=True)
     st.subheader("🔎 Cari Kinerja Dosen")
     q=st.text_input("Nama dosen",placeholder="Ketik nama dosen...",key="quji")
     names=sorted(f[name].dropna().astype(str).unique());matches=[x for x in names if q.lower() in x.lower()] if q else []
