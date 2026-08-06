@@ -97,6 +97,54 @@ def trend_delta(df,name_col,sem_col,metric,name):
     if len(q)<2:return np.nan,q.iloc[-1][sem_col],None
     return q.iloc[-1][metric]-q.iloc[-2][metric],q.iloc[-1][sem_col],q.iloc[-2][sem_col]
 
+def tren_label(v):
+    if pd.isna(v):return "N/A"
+    if v>0:return "▲ Naik"
+    if v<0:return "▼ Turun"
+    return "— Tetap"
+
+def prodi_summary(df, prodi_col, sem_col, metric_col):
+    if not prodi_col or not sem_col or not metric_col or prodi_col not in df.columns:
+        return pd.DataFrame()
+    g=df.groupby([prodi_col,sem_col],as_index=False)[metric_col].mean()
+    g["_k"]=g[sem_col].map(semester_key)
+    rows=[]
+    for prodi,sub in g.groupby(prodi_col):
+        sub=sub.sort_values("_k")
+        latest=sub.iloc[-1]
+        prev=sub.iloc[-2] if len(sub)>=2 else None
+        delta=latest[metric_col]-prev[metric_col] if prev is not None else np.nan
+        rows.append({
+            "Prodi":prodi,
+            "Semester Terakhir":latest[sem_col],
+            "Kinerja Terakhir (%)":latest[metric_col],
+            "Semester Sebelumnya":prev[sem_col] if prev is not None else "-",
+            "Kinerja Sebelumnya (%)":prev[metric_col] if prev is not None else np.nan,
+            "Perubahan (poin)":delta,
+        })
+    out=pd.DataFrame(rows)
+    if out.empty:return out
+    out["Tren"]=out["Perubahan (poin)"].apply(tren_label)
+    out["Status"]=out["Kinerja Terakhir (%)"].apply(status)
+    return out.sort_values("Kinerja Terakhir (%)",ascending=False)
+
+def render_prodi_section(f, prodi_col, sem_col, kin_col):
+    st.subheader("🏫 Kinerja per Program Studi")
+    pt=prodi_summary(f,prodi_col,sem_col,kin_col)
+    if pt.empty:
+        st.info("Data program studi tidak tersedia untuk filter saat ini.")
+        return
+    show=pt[["Prodi","Semester Terakhir","Kinerja Terakhir (%)","Semester Sebelumnya","Kinerja Sebelumnya (%)","Perubahan (poin)","Tren","Status"]].round(1)
+    st.dataframe(show,use_container_width=True,hide_index=True)
+    figp=px.bar(pt,x="Prodi",y="Kinerja Terakhir (%)",color="Perubahan (poin)",
+                color_continuous_scale=["#b53b34","#f2f2ee","#147a4b"],color_continuous_midpoint=0,
+                title="Kinerja Prodi (Semester Terakhir) & Perubahan vs Semester Sebelumnya",
+                hover_data={"Tren":True,"Perubahan (poin)":":.1f"})
+    figp.update_yaxes(range=[0,100])
+    st.plotly_chart(figp,use_container_width=True)
+    naik=int((pt["Perubahan (poin)"]>0).sum());turun=int((pt["Perubahan (poin)"]<0).sum());tetap=int((pt["Perubahan (poin)"]==0).sum())
+    st.markdown(f'<span class="small-note">📈 {naik} prodi naik · 📉 {turun} prodi turun · ➖ {tetap} prodi tetap dibanding semester sebelumnya.</span>',unsafe_allow_html=True)
+
 def page_perkuliahan():
     df=read_excel_auto(PER_FILE)
     if df.empty: st.error(f"File {PER_FILE} tidak ditemukan.");return
@@ -117,6 +165,7 @@ def page_perkuliahan():
     st.subheader("📈 Tren Kinerja Semester")
     tr=f.groupby(sem,as_index=False)[[hadir,tepat,kin]].mean();tr["_k"]=tr[sem].map(semester_key);tr=tr.sort_values("_k")
     fig=px.line(tr,x=sem,y=[hadir,tepat,kin],markers=True);fig.update_yaxes(range=[0,100]);st.plotly_chart(fig,use_container_width=True)
+    render_prodi_section(f,prodi,sem,kin)
     st.subheader("🔎 Cari Kinerja Dosen")
     q=st.text_input("Nama dosen",placeholder="Ketik nama dosen...",key="qper")
     names=sorted(f[name].dropna().astype(str).unique()); matches=[x for x in names if q.lower() in x.lower()] if q else []
@@ -153,6 +202,7 @@ def page_ujian():
     st.subheader("📈 Tren Kinerja Semester")
     tr=f.groupby(sem,as_index=False)[[upload,hadir,entry,kin]].mean();tr["_k"]=tr[sem].map(semester_key);tr=tr.sort_values("_k")
     fig=px.line(tr,x=sem,y=[upload,hadir,entry,kin],markers=True);fig.update_yaxes(range=[0,100]);st.plotly_chart(fig,use_container_width=True)
+    render_prodi_section(f,prodi,sem,kin)
     st.subheader("🔎 Cari Kinerja Dosen")
     q=st.text_input("Nama dosen",placeholder="Ketik nama dosen...",key="quji")
     names=sorted(f[name].dropna().astype(str).unique());matches=[x for x in names if q.lower() in x.lower()] if q else []
