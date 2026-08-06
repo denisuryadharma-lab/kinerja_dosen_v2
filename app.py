@@ -136,11 +136,13 @@ def render_prodi_section(f, prodi_col, sem_col, kin_col):
         return
     show=pt[["Prodi","Semester Terakhir","Kinerja Terakhir (%)","Semester Sebelumnya","Kinerja Sebelumnya (%)","Perubahan (poin)","Tren","Status"]].round(1)
     st.dataframe(show,use_container_width=True,hide_index=True)
-    figp=px.bar(pt,x="Prodi",y="Kinerja Terakhir (%)",color="Perubahan (poin)",
-                color_continuous_scale=["#b53b34","#f2f2ee","#147a4b"],color_continuous_midpoint=0,
+    tren_colors={"▲ Naik":"#16a34a","▼ Turun":"#dc2626","— Tetap":"#94a3b8","N/A":"#cbd5e1"}
+    pt_plot=pt.copy();pt_plot["Perubahan (poin)"]=pt_plot["Perubahan (poin)"].round(1)
+    figp=px.bar(pt_plot,x="Prodi",y="Kinerja Terakhir (%)",color="Tren",
+                color_discrete_map=tren_colors,category_orders={"Tren":["▲ Naik","▼ Turun","— Tetap","N/A"]},
                 title="Kinerja Prodi (Semester Terakhir) & Perubahan vs Semester Sebelumnya",
-                hover_data={"Tren":True,"Perubahan (poin)":":.1f"})
-    figp.update_yaxes(range=[0,100])
+                hover_data={"Perubahan (poin)":True})
+    figp.update_yaxes(range=[0,100]);figp.update_layout(legend_title_text="Tren")
     st.plotly_chart(figp,use_container_width=True)
     naik=int((pt["Perubahan (poin)"]>0).sum());turun=int((pt["Perubahan (poin)"]<0).sum());tetap=int((pt["Perubahan (poin)"]==0).sum())
     st.markdown(f'<span class="small-note">📈 {naik} prodi naik · 📉 {turun} prodi turun · ➖ {tetap} prodi tetap dibanding semester sebelumnya.</span>',unsafe_allow_html=True)
