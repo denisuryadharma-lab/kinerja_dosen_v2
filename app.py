@@ -103,19 +103,19 @@ def tren_label(v):
     if v<0:return "▼ Turun"
     return "— Tetap"
 
-def prodi_summary(df, prodi_col, sem_col, metric_col):
-    if not prodi_col or not sem_col or not metric_col or prodi_col not in df.columns:
+def group_summary(df, group_col, sem_col, metric_col, label="Kelompok"):
+    if not group_col or not sem_col or not metric_col or group_col not in df.columns:
         return pd.DataFrame()
-    g=df.groupby([prodi_col,sem_col],as_index=False)[metric_col].mean()
+    g=df.groupby([group_col,sem_col],as_index=False)[metric_col].mean()
     g["_k"]=g[sem_col].map(semester_key)
     rows=[]
-    for prodi,sub in g.groupby(prodi_col):
+    for grp,sub in g.groupby(group_col):
         sub=sub.sort_values("_k")
         latest=sub.iloc[-1]
         prev=sub.iloc[-2] if len(sub)>=2 else None
         delta=latest[metric_col]-prev[metric_col] if prev is not None else np.nan
         rows.append({
-            "Prodi":prodi,
+            label:grp,
             "Semester Terakhir":latest[sem_col],
             "Kinerja Terakhir (%)":latest[metric_col],
             "Semester Sebelumnya":prev[sem_col] if prev is not None else "-",
@@ -128,32 +128,59 @@ def prodi_summary(df, prodi_col, sem_col, metric_col):
     out["Status"]=out["Kinerja Terakhir (%)"].apply(status)
     return out.sort_values("Kinerja Terakhir (%)",ascending=False)
 
-def render_prodi_section(f, prodi_col, sem_col, kin_col):
-    st.subheader("🏫 Kinerja per Program Studi")
-    pt=prodi_summary(f,prodi_col,sem_col,kin_col)
+def render_group_section(f, group_col, sem_col, kin_col, label="Fakultas", icon="🏛️"):
+    st.subheader(f"{icon} Kinerja per {label}")
+    pt=group_summary(f,group_col,sem_col,kin_col,label=label)
     if pt.empty:
-        st.info("Data program studi tidak tersedia untuk filter saat ini.")
+        st.info(f"Data {label.lower()} tidak tersedia untuk filter saat ini.")
         return
-    show=pt[["Prodi","Semester Terakhir","Kinerja Terakhir (%)","Semester Sebelumnya","Kinerja Sebelumnya (%)","Perubahan (poin)","Tren","Status"]].round(1)
+    show=pt[[label,"Semester Terakhir","Kinerja Terakhir (%)","Semester Sebelumnya","Kinerja Sebelumnya (%)","Perubahan (poin)","Tren","Status"]].round(1)
     st.dataframe(show,use_container_width=True,hide_index=True)
-    figp=px.bar(pt,x="Prodi",y="Kinerja Terakhir (%)",color="Perubahan (poin)",
+    figp=px.bar(pt,x=label,y="Kinerja Terakhir (%)",color="Perubahan (poin)",
                 color_continuous_scale=["#b53b34","#f2f2ee","#147a4b"],color_continuous_midpoint=0,
-                title="Kinerja Prodi (Semester Terakhir) & Perubahan vs Semester Sebelumnya",
+                title=f"Kinerja {label} (Semester Terakhir) & Perubahan vs Semester Sebelumnya",
                 hover_data={"Tren":True,"Perubahan (poin)":":.1f"})
     figp.update_yaxes(range=[0,100])
     st.plotly_chart(figp,use_container_width=True)
     naik=int((pt["Perubahan (poin)"]>0).sum());turun=int((pt["Perubahan (poin)"]<0).sum());tetap=int((pt["Perubahan (poin)"]==0).sum())
-    st.markdown(f'<span class="small-note">📈 {naik} prodi naik · 📉 {turun} prodi turun · ➖ {tetap} prodi tetap dibanding semester sebelumnya.</span>',unsafe_allow_html=True)
+    st.markdown(f'<span class="small-note">📈 {naik} {label.lower()} naik · 📉 {turun} {label.lower()} turun · ➖ {tetap} {label.lower()} tetap dibanding semester sebelumnya.</span>',unsafe_allow_html=True)
+
+def render_kelas_pie(f, fak_col, kamp_col, id_kelas_col=None):
+    st.subheader("🥧 Distribusi Jumlah Kelas")
+    a,b=st.columns(2)
+    with a:
+        if fak_col and fak_col in f.columns:
+            if id_kelas_col and id_kelas_col in f.columns:
+                g=f.groupby(fak_col)[id_kelas_col].nunique().reset_index(name="Jumlah Kelas")
+            else:
+                g=f.groupby(fak_col).size().reset_index(name="Jumlah Kelas")
+            fig=px.pie(g,names=fak_col,values="Jumlah Kelas",title="Jumlah Kelas per Fakultas",hole=.35)
+            fig.update_traces(textinfo="percent+label")
+            st.plotly_chart(fig,use_container_width=True)
+        else:
+            st.info("Data fakultas tidak tersedia untuk filter saat ini.")
+    with b:
+        if kamp_col and kamp_col in f.columns:
+            if id_kelas_col and id_kelas_col in f.columns:
+                g=f.groupby(kamp_col)[id_kelas_col].nunique().reset_index(name="Jumlah Kelas")
+            else:
+                g=f.groupby(kamp_col).size().reset_index(name="Jumlah Kelas")
+            fig=px.pie(g,names=kamp_col,values="Jumlah Kelas",title="Jumlah Kelas per Kampus",hole=.35)
+            fig.update_traces(textinfo="percent+label")
+            st.plotly_chart(fig,use_container_width=True)
+        else:
+            st.info("Data kampus tidak tersedia untuk filter saat ini.")
 
 def page_perkuliahan():
     df=read_excel_auto(PER_FILE)
     if df.empty: st.error(f"File {PER_FILE} tidak ditemukan.");return
     name=find_col(df,["NAMA DOSEN","Nama Dosen"]); nip=find_col(df,["NIP DOSEN","ID Dosen"])
     sem=find_col(df,["SEMESTER"]); fak=find_col(df,["FAKULTAS"]); prodi=find_col(df,["PRODI"]); kamp=find_col(df,["KAMPUS"])
+    prog=find_col(df,["PROG"]); idkelas=find_col(df,["ID KELAS"])
     hadir=find_col(df,["% KEHADIRAN"]); tepat=find_col(df,["% KETEPATAN"]); kin=find_col(df,["% KINERJA"])
     for c in [hadir,tepat,kin]:
         if c: df[c]=pct_series(df[c])
-    f=filters(df,[("Semester",sem),("Kampus",kamp),("Fakultas",fak),("Program Studi",prodi)])
+    f=filters(df,[("Semester",sem),("Kampus",kamp),("Fakultas",fak),("Program Studi",prodi),("Program (REG-1/REG-2)",prog)])
     st.markdown('<div class="hero"><span class="badge-green">PERKULIAHAN</span><h1>Kinerja Perkuliahan Dosen</h1><div class="small-note">Kehadiran, ketepatan waktu mengajar, tren semester, ranking, dan profil individual dosen.</div></div>',unsafe_allow_html=True)
     c1,c2,c3,c4=st.columns(4)
     c1.metric("Dosen",f[name].nunique());c2.metric("Kehadiran",f"{f[hadir].mean():.1f}%");c3.metric("Ketepatan",f"{f[tepat].mean():.1f}%");c4.metric("Kinerja",f"{f[kin].mean():.1f}%")
@@ -161,7 +188,8 @@ def page_perkuliahan():
     st.subheader("📈 Tren Kinerja Semester")
     tr=f.groupby(sem,as_index=False)[[hadir,tepat,kin]].mean();tr["_k"]=tr[sem].map(semester_key);tr=tr.sort_values("_k")
     fig=px.line(tr,x=sem,y=[hadir,tepat,kin],markers=True);fig.update_yaxes(range=[0,100]);st.plotly_chart(fig,use_container_width=True)
-    render_prodi_section(f,prodi,sem,kin)
+    render_group_section(f,fak,sem,kin,label="Fakultas")
+    render_kelas_pie(f,fak,kamp,idkelas)
     st.subheader("🏆 Ranking Dosen")
     a,b=st.columns(2)
     with a: st.markdown("**Top 10 Kinerja Tertinggi**");st.dataframe(ranking_table(agg,"Kinerja")[["Peringkat",name,"Kelas","Kehadiran","Ketepatan","Kinerja"]].round(1),use_container_width=True,hide_index=True)
@@ -187,10 +215,11 @@ def page_ujian():
     df=read_excel_auto(UJI_FILE)
     if df.empty:st.error(f"File {UJI_FILE} tidak ditemukan.");return
     name=find_col(df,["Nama Dosen","NAMA DOSEN"]); sem=find_col(df,["Semester","SEMESTER"]);fak=find_col(df,["Fakultas"]);prodi=find_col(df,["Prodi"]);kamp=find_col(df,["Kampus"])
+    prog=find_col(df,["Prog","PROG"]); idkelas=find_col(df,["ID Kelas"])
     upload=find_col(df,["% Upload Soal"]);hadir=find_col(df,["% Kinerja Kehadiran"]);entry=find_col(df,["% Entry Nilai"]);kin=find_col(df,["% KINERJA"])
     for c in [upload,hadir,entry,kin]:
         if c:df[c]=pct_series(df[c])
-    f=filters(df,[("Semester",sem),("Kampus",kamp),("Fakultas",fak),("Program Studi",prodi)])
+    f=filters(df,[("Semester",sem),("Kampus",kamp),("Fakultas",fak),("Program Studi",prodi),("Program (REG-1/REG-2)",prog)])
     st.markdown('<div class="hero"><span class="badge-yellow">UJIAN</span><h1>Kinerja Ujian Dosen (UTS/UAS)</h1><div class="small-note">Upload soal, kehadiran ujian, entry nilai, kinerja, tren semester, ranking, dan profil individual.</div></div>',unsafe_allow_html=True)
     c1,c2,c3,c4,c5=st.columns(5)
     c1.metric("Dosen",f[name].nunique());c2.metric("Upload Soal",f"{f[upload].mean():.1f}%");c3.metric("Kehadiran",f"{f[hadir].mean():.1f}%");c4.metric("Entry Nilai",f"{f[entry].mean():.1f}%");c5.metric("Kinerja",f"{f[kin].mean():.1f}%")
@@ -198,7 +227,8 @@ def page_ujian():
     st.subheader("📈 Tren Kinerja Semester")
     tr=f.groupby(sem,as_index=False)[[upload,hadir,entry,kin]].mean();tr["_k"]=tr[sem].map(semester_key);tr=tr.sort_values("_k")
     fig=px.line(tr,x=sem,y=[upload,hadir,entry,kin],markers=True);fig.update_yaxes(range=[0,100]);st.plotly_chart(fig,use_container_width=True)
-    render_prodi_section(f,prodi,sem,kin)
+    render_group_section(f,fak,sem,kin,label="Fakultas")
+    render_kelas_pie(f,fak,kamp,idkelas)
     st.subheader("🏆 Ranking Dosen")
     a,b=st.columns(2)
     with a:st.markdown("**Top 10 Kinerja Tertinggi**");st.dataframe(ranking_table(agg,"Kinerja")[["Peringkat",name,"Kelas","Upload","Kehadiran","Entry","Kinerja"]].round(1),use_container_width=True,hide_index=True)
