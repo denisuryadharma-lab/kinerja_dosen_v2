@@ -251,8 +251,8 @@ def page_ujian():
         st.download_button("⬇️ Download hasil pencarian Excel",excel_bytes(d,"Kinerja Ujian"),file_name=f"kinerja_ujian_{selected}.xlsx",mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     elif q:st.warning("Nama dosen tidak ditemukan.")
 
-st.sidebar.title("📊 Dasbor Internal")
-page=st.sidebar.radio("Pilih Dasbor",["Beranda","Kinerja Perkuliahan","Kinerja Ujian"])
+st.sidebar.title("📊 Dashboard Internal")
+page=st.sidebar.radio("Pilih Dashboard",["Beranda","Kinerja Perkuliahan","Kinerja Ujian"])
 st.sidebar.caption("Pembaruan data: ganti file Excel lama di repository dengan file baru menggunakan nama file yang sama.")
 st.sidebar.caption("Powered By : Denny Suryadharma.")
 if page=="Beranda":
