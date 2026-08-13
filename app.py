@@ -256,7 +256,7 @@ page=st.sidebar.radio("Pilih Dasbor",["Beranda","Kinerja Perkuliahan","Kinerja U
 st.sidebar.caption("Pembaruan data: ganti file Excel lama di repository dengan file baru menggunakan nama file yang sama.")
 st.sidebar.caption("Powered By : Denny Suryadharma.")
 if page=="Beranda":
-    st.markdown("""<div style="text-align:center;padding:55px 10px 25px"><div class="small-note">DASBOR INTERNAL · KINERJA DOSEN</div><h1 style="font-size:3rem">Pilih Dasbor</h1><p>Kinerja perkuliahan dan kinerja ujian dosen. Data dapat diperbarui cukup dengan mengganti file Excel sumber.</p></div>""",unsafe_allow_html=True)
+    st.markdown("""<div style="text-align:center;padding:55px 10px 25px"><div class="small-note">DASHBOARD INTERNAL · KINERJA DOSEN</div><h1 style="font-size:3rem">Pilih Dasbor</h1><p>Kinerja perkuliahan dan kinerja ujian dosen. Data Kinerja Perkuliahan Meliputi : Kehadiran dan Ketepatan Waktu Mengajar. Data Kinerja Ujian Meliputi : Upload Soal, Kehadiran Mengawas dan Entry Nilai Mahasiswa</p></div>""",unsafe_allow_html=True)
     a,b=st.columns(2)
     with a:
         st.info("### 📚 Kinerja Perkuliahan\nKehadiran, ketepatan waktu, % kinerja, ranking, tren dan profil dosen.")
