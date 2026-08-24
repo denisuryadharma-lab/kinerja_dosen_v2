@@ -20,41 +20,29 @@ div[data-testid="stDataFrame"] {background:white;border-radius:12px}
 .badge-green{background:#e8f5ee;color:#147a4b;padding:5px 10px;border-radius:99px}
 .badge-yellow{background:#fff4d6;color:#956400;padding:5px 10px;border-radius:99px}
 .badge-red{background:#fde9e7;color:#b53b34;padding:5px 10px;border-radius:99px}
-.kop-surat{display:flex;align-items:center;gap:22px;padding:14px 0 18px 0;border-bottom:4px solid #0d2342;margin-bottom:22px}
-.kop-surat img{height:88px;width:auto;flex-shrink:0}
-.kop-surat .kop-text{display:flex;flex-direction:column;justify-content:center;line-height:1.25}
-.kop-surat .kop-text .kop-line1{font-family:Georgia,serif;font-weight:700;font-size:1.55rem;color:#0d2342;letter-spacing:.5px}
-.kop-surat .kop-text .kop-line2{font-family:Georgia,serif;font-weight:700;font-size:1.2rem;color:#147a4b;letter-spacing:.5px}
+.kop-surat{width:100%;background:white;border-bottom:3px solid #0d2342;padding:14px 0 18px 0;margin:-1rem 0 22px 0;text-align:center}
+.kop-surat img{max-width:100%;height:auto;max-height:100px}
 </style>
 """, unsafe_allow_html=True)
 
-LOGO_FILE="logo_umb.png"
+PER_FILE="kinerja_perkuliahan.xlsx"
+UJI_FILE="kinerja_ujian.xlsx"
+KOP_FILE="KOP_BOP.png"
 
 @st.cache_data(show_spinner=False)
-def load_logo_b64(path):
+def load_img_b64(path):
     if not os.path.exists(path):
         return None
     import base64
-    with open(path,"rb") as f:
-        return base64.b64encode(f.read()).decode()
+    with open(path,"rb") as fh:
+        return base64.b64encode(fh.read()).decode()
 
 def render_kop_surat():
-    b64=load_logo_b64(LOGO_FILE)
-    logo_html=f'<img src="data:image/png;base64,{b64}" />' if b64 else ""
-    st.markdown(f"""
-    <div class="kop-surat">
-        {logo_html}
-        <div class="kop-text">
-            <span class="kop-line1"><div style="text-align:center;padding:55px 10px 25px"><div class="small-note">BIRO OPERASIONAL PERKULIAHAN</span>
-            <span class="kop-line2"><div style="text-align:center;padding:55px 10px 25px"><div class="small-note">UNIVERSITAS MERCU BUANA</span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    b64=load_img_b64(KOP_FILE)
+    if b64:
+        st.markdown(f'<div class="kop-surat"><img src="data:image/png;base64,{b64}" /></div>',unsafe_allow_html=True)
 
 render_kop_surat()
-
-PER_FILE="kinerja_perkuliahan.xlsx"
-UJI_FILE="kinerja_ujian.xlsx"
 
 def clean_cols(df):
     df=df.copy()
