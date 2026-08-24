@@ -45,8 +45,8 @@ def render_kop_surat():
     <div class="kop-surat">
         {logo_html}
         <div class="kop-text">
-            <span class="kop-line1">BIRO OPERASIONAL PERKULIAHAN</span>
-            <span class="kop-line2">UNIVERSITAS MERCU BUANA</span>
+            <span class="kop-line1"><div style="text-align:center;padding:55px 10px 25px"><div class="small-note">BIRO OPERASIONAL PERKULIAHAN</span>
+            <span class="kop-line2"><div style="text-align:center;padding:55px 10px 25px"><div class="small-note">UNIVERSITAS MERCU BUANA</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
