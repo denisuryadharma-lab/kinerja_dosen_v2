@@ -189,6 +189,113 @@ def render_kelas_pie(f, fak_col, kamp_col, id_kelas_col=None):
         else:
             st.info("Data kampus tidak tersedia untuk filter saat ini.")
 
+def _fmt_int(v):
+    return "" if pd.isna(v) else f"{int(round(v)):,}"
+
+def _fmt_pct(v):
+    return "" if pd.isna(v) else f"{v:.2f}%"
+
+def _fmt_flt(v):
+    return "" if pd.isna(v) else f"{v:.2f}"
+
+def _style_totals(disp, is_total):
+    def _row_style(row):
+        if is_total.get(row.name):
+            return ['font-weight:700;background-color:#eef2f7']*len(row)
+        return ['']*len(row)
+    return disp.style.apply(_row_style, axis=1)
+
+def render_detail_perkuliahan(f, fak_col, prodi_col, hrs_had, nyt_had, hrs_tep, nyt_tep, kin_col):
+    st.subheader("📋 Rincian Kinerja per Fakultas & Prodi")
+    need=[fak_col,prodi_col,hrs_had,nyt_had,hrs_tep,nyt_tep,kin_col]
+    if not all(need) or fak_col not in f.columns or prodi_col not in f.columns:
+        st.info("Kolom yang dibutuhkan untuk rincian ini tidak tersedia.");return
+    def calc(sub):
+        if len(sub)==0:return None
+        hh=sub[hrs_had].sum();nh=sub[nyt_had].sum();ph=(nh/hh*100) if hh else np.nan
+        ht=sub[hrs_tep].sum();nt=sub[nyt_tep].sum();pt=(nt/ht*100) if ht else np.nan
+        pk=np.nanmean([ph,pt])
+        return dict(hh=hh,nh=nh,ph=ph,ht=ht,nt=nt,pt=pt,pk=pk)
+    rows=[];is_total={}
+    for fk in sorted(f[fak_col].dropna().astype(str).unique()):
+        fdf=f[f[fak_col].astype(str)==fk]
+        first=True
+        for pr in sorted(fdf[prodi_col].dropna().astype(str).unique()):
+            c=calc(fdf[fdf[prodi_col].astype(str)==pr])
+            if not c:continue
+            rows.append({"Fakultas":fk if first else "","Prodi":pr,**c});first=False
+        c=calc(fdf)
+        if c:rows.append({"Fakultas":"","Prodi":f"{fk} Total",**c})
+    c=calc(f)
+    if c:rows.append({"Fakultas":"","Prodi":"Grand Total",**c})
+    if not rows:
+        st.info("Tidak ada data untuk filter saat ini.");return
+    raw=pd.DataFrame(rows)
+    is_total={i:str(raw.loc[i,"Prodi"]).endswith("Total") for i in raw.index}
+    disp=pd.DataFrame({
+        "Fakultas":raw["Fakultas"],"Prodi":raw["Prodi"],
+        "HRS":raw["hh"].apply(_fmt_int),"NYT":raw["nh"].apply(_fmt_int),"%":raw["ph"].apply(_fmt_pct),
+        "HRS ":raw["ht"].apply(_fmt_int),"NYT ":raw["nt"].apply(_fmt_int),"% ":raw["pt"].apply(_fmt_pct),
+        "% Kinerja":raw["pk"].apply(_fmt_pct),
+    })
+    disp.columns=pd.MultiIndex.from_tuples([
+        ("","Fakultas"),("","Prodi"),
+        ("Kehadiran","HRS"),("Kehadiran","NYT"),("Kehadiran","%"),
+        ("Ketepatan Waktu","HRS"),("Ketepatan Waktu","NYT"),("Ketepatan Waktu","%"),
+        ("","% Kinerja"),
+    ])
+    st.dataframe(_style_totals(disp,is_total),use_container_width=True,hide_index=True)
+    st.markdown('<span class="small-note">HRS = jumlah pertemuan seharusnya, NYT = jumlah pertemuan nyata/terlaksana.</span>',unsafe_allow_html=True)
+
+def render_detail_ujian(f, fak_col, prodi_col, upload_col, hadir_col, entry_col, skala_col, kin_col):
+    st.subheader("📋 Rincian Kinerja per Fakultas & Prodi")
+    need=[fak_col,prodi_col,upload_col,hadir_col,entry_col,kin_col]
+    if not all(need) or fak_col not in f.columns or prodi_col not in f.columns:
+        st.info("Kolom yang dibutuhkan untuk rincian ini tidak tersedia.");return
+    def calc(sub):
+        n=len(sub)
+        if n==0:return None
+        up_on=int((sub[upload_col]>=99.5).sum());up_tl=n-up_on
+        hd_on=int((sub[hadir_col]>=99.5).sum());hd_tl=n-hd_on
+        en_on=int((sub[entry_col]>=99.5).sum());en_tl=n-en_on
+        rata=sub[skala_col].mean() if skala_col and skala_col in sub else np.nan
+        kinerja=sub[kin_col].mean()
+        return dict(n=n,up_on=up_on,up_tl=up_tl,up_pct=up_on/n*100,
+                    hd_on=hd_on,hd_tl=hd_tl,hd_pct=hd_on/n*100,
+                    en_on=en_on,en_tl=en_tl,en_pct=en_on/n*100,
+                    rata=rata,kinerja=kinerja)
+    rows=[]
+    for fk in sorted(f[fak_col].dropna().astype(str).unique()):
+        fdf=f[f[fak_col].astype(str)==fk]
+        first=True
+        for pr in sorted(fdf[prodi_col].dropna().astype(str).unique()):
+            c=calc(fdf[fdf[prodi_col].astype(str)==pr])
+            if not c:continue
+            rows.append({"Fakultas":fk if first else "","Prodi":pr,**c});first=False
+        c=calc(fdf)
+        if c:rows.append({"Fakultas":"","Prodi":f"{fk} Total",**c})
+    c=calc(f)
+    if c:rows.append({"Fakultas":"","Prodi":"Grand Total",**c})
+    if not rows:
+        st.info("Tidak ada data untuk filter saat ini.");return
+    raw=pd.DataFrame(rows)
+    is_total={i:str(raw.loc[i,"Prodi"]).endswith("Total") for i in raw.index}
+    disp=pd.DataFrame({
+        "Fakultas":raw["Fakultas"],"Prodi":raw["Prodi"],
+        "K1":raw["n"].apply(_fmt_int),"On1":raw["up_on"].apply(_fmt_int),"Tl1":raw["up_tl"].apply(_fmt_int),"P1":raw["up_pct"].apply(_fmt_pct),
+        "K2":raw["n"].apply(_fmt_int),"On2":raw["hd_on"].apply(_fmt_int),"Tl2":raw["hd_tl"].apply(_fmt_int),"P2":raw["hd_pct"].apply(_fmt_pct),
+        "K3":raw["n"].apply(_fmt_int),"On3":raw["en_on"].apply(_fmt_int),"Tl3":raw["en_tl"].apply(_fmt_int),"P3":raw["en_pct"].apply(_fmt_pct),
+        "Rata":raw["rata"].apply(_fmt_flt),"Kin":raw["kinerja"].apply(_fmt_pct),
+    })
+    disp.columns=pd.MultiIndex.from_tuples([
+        ("","Fakultas"),("","Prodi"),
+        ("Kinerja Upload Soal","∑ Kelas"),("Kinerja Upload Soal","∑ Ontime"),("Kinerja Upload Soal","∑ Telat"),("Kinerja Upload Soal","% Tepat Waktu"),
+        ("Kinerja Kehadiran Mengawas","∑ Kelas"),("Kinerja Kehadiran Mengawas","∑ Hadir"),("Kinerja Kehadiran Mengawas","∑ Tidak Hadir"),("Kinerja Kehadiran Mengawas","% Tepat Waktu"),
+        ("Kinerja Entry Nilai","∑ Kelas"),("Kinerja Entry Nilai","∑ Tepat Waktu"),("Kinerja Entry Nilai","∑ Telat Entry"),("Kinerja Entry Nilai","% Tepat Waktu"),
+        ("","Rata-Rata Skala"),("","% Kinerja"),
+    ])
+    st.dataframe(_style_totals(disp,is_total),use_container_width=True,hide_index=True)
+
 def page_perkuliahan():
     df=read_excel_auto(PER_FILE)
     if df.empty: st.error(f"File {PER_FILE} tidak ditemukan.");return
@@ -208,6 +315,9 @@ def page_perkuliahan():
     fig=px.line(tr,x=sem,y=[hadir,tepat,kin],markers=True);fig.update_yaxes(range=[0,100]);st.plotly_chart(fig,use_container_width=True)
     render_group_section(f,fak,sem,kin,label="Fakultas")
     render_group_section(f,prodi,sem,kin,label="Program Studi",icon="🏫")
+    hrs_had=find_col(df,["KEHADIRAN HRS"]); nyt_had=find_col(df,["KEHADIRAN NYT"])
+    hrs_tep=find_col(df,["KETEPATAN HRS"]); nyt_tep=find_col(df,["KETEPATAN NYT"])
+    render_detail_perkuliahan(f,fak,prodi,hrs_had,nyt_had,hrs_tep,nyt_tep,kin)
     render_kelas_pie(f,fak,kamp,idkelas)
     st.subheader("🏆 Ranking Dosen")
     a,b=st.columns(2)
@@ -248,6 +358,8 @@ def page_ujian():
     fig=px.line(tr,x=sem,y=[upload,hadir,entry,kin],markers=True);fig.update_yaxes(range=[0,100]);st.plotly_chart(fig,use_container_width=True)
     render_group_section(f,fak,sem,kin,label="Fakultas")
     render_group_section(f,prodi,sem,kin,label="Program Studi",icon="🏫")
+    skala=find_col(df,["Rata-Rata Skala","Rata Rata Skala"])
+    render_detail_ujian(f,fak,prodi,upload,hadir,entry,skala,kin)
     render_kelas_pie(f,fak,kamp,idkelas)
     st.subheader("🏆 Ranking Dosen")
     a,b=st.columns(2)
@@ -272,7 +384,7 @@ def page_ujian():
 st.sidebar.title("📊 Dashboard Internal")
 page=st.sidebar.radio("Pilih Dashboard",["Beranda","Kinerja Perkuliahan","Kinerja Ujian"])
 st.sidebar.caption("Pembaruan data: ganti file Excel lama di repository dengan file baru menggunakan nama file yang sama.")
-st.sidebar.caption("Powered By : Biro Operasional Perkuliahan.")
+st.sidebar.caption("Powered By : Denny Suryadharma.")
 if page=="Beranda":
     st.markdown("""<div style="text-align:center;padding:55px 10px 25px"><div class="small-note">DASHBOARD INTERNAL · KINERJA DOSEN</div><h1 style="font-size:3rem">Pilih Dashboard</h1><p>Kinerja perkuliahan dan kinerja ujian dosen. Data Kinerja Perkuliahan Meliputi : Kehadiran dan Ketepatan Waktu Mengajar. Data Kinerja Ujian Meliputi : Upload Soal, Kehadiran Mengawas dan Entry Nilai Mahasiswa</p></div>""",unsafe_allow_html=True)
     a,b=st.columns(2)
