@@ -5,6 +5,9 @@ import numpy as np
 import io, os, re
 import plotly.express as px
 import plotly.graph_objects as go
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 st.set_page_config(page_title="Dashboard Kinerja Dosen", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
 
@@ -86,11 +89,110 @@ def status(v):
     if v>=70:return "Kuning • Perlu perhatian"
     return "Merah • Perlu tindak lanjut"
 
-def excel_bytes(df, sheet="Data"):
-    b=io.BytesIO()
-    with pd.ExcelWriter(b,engine="openpyxl") as w:
-        df.to_excel(w,index=False,sheet_name=sheet[:31])
-    return b.getvalue()
+_THIN=Side(style="thin",color="DCE3EA")
+_BORDER=Border(left=_THIN,right=_THIN,top=_THIN,bottom=_THIN)
+_HEADER_FILL=PatternFill("solid",fgColor="0D2342")
+_HEADER_FONT=Font(bold=True,color="FFFFFF")
+_TOTAL_FILL=PatternFill("solid",fgColor="EEF2F7")
+_BADGE_COLORS={"Hijau":("E8F5EE","147A4B"),"Kuning":("FFF4D6","956400"),"Merah":("FDE9E7","B53B34")}
+
+def _badge_key(v):
+    t=str(v)
+    for k in _BADGE_COLORS:
+        if t.startswith(k):return k
+    return None
+
+def _autosize(ws, ncols, df=None, header_row=1, min_w=10, max_w=42):
+    for j in range(1,ncols+1):
+        col_letter=get_column_letter(j)
+        lens=[len(str(ws.cell(row=r,column=j).value or "")) for r in range(header_row, ws.max_row+1)]
+        w=min(max((max(lens) if lens else 10)+3,min_w),max_w)
+        ws.column_dimensions[col_letter].width=w
+
+def excel_bytes(df, sheet="Data", col_formats=None, badge_col=None, bold_rows=None):
+    """Export a flat dataframe to Excel styled to match the app's look:
+    navy header row, thin borders, badge-colored status cells, bold/highlighted total rows."""
+    col_formats=col_formats or {}
+    bold_rows=bold_rows or set()
+    wb=openpyxl.Workbook();ws=wb.active;ws.title=str(sheet)[:31]
+    cols=list(df.columns)
+    for j,c in enumerate(cols,1):
+        cell=ws.cell(row=1,column=j,value=str(c))
+        cell.font=_HEADER_FONT;cell.fill=_HEADER_FILL;cell.border=_BORDER
+        cell.alignment=Alignment(horizontal="center",vertical="center",wrap_text=True)
+    for i,(_,row) in enumerate(df.iterrows()):
+        r=i+2;is_bold=i in bold_rows
+        for j,c in enumerate(cols,1):
+            v=row[c];cell=ws.cell(row=r,column=j)
+            if isinstance(v,(int,float,np.integer,np.floating)) and not isinstance(v,bool) and pd.notna(v):
+                cell.value=float(v)
+                cell.number_format=col_formats.get(c,'#,##0.00' if not float(v).is_integer() else '#,##0')
+            else:
+                cell.value="" if pd.isna(v) else v
+            cell.border=_BORDER
+            cell.alignment=Alignment(vertical="center")
+            if is_bold:
+                cell.font=Font(bold=True);cell.fill=_TOTAL_FILL
+            if badge_col and c==badge_col:
+                key=_badge_key(v)
+                if key:
+                    bg,fg=_BADGE_COLORS[key]
+                    cell.fill=PatternFill("solid",fgColor=bg);cell.font=Font(color=fg,bold=True)
+    ws.freeze_panes="A2"
+    _autosize(ws,len(cols))
+    b=io.BytesIO();wb.save(b);return b.getvalue()
+
+def excel_bytes_pivot(raw, cols_spec, is_total, sheet="Rincian"):
+    """Export a two-level grouped-header pivot table (Fakultas > Prodi with subtotal/grand total
+    rows) to Excel, mirroring the merged-header table shown in the app."""
+    wb=openpyxl.Workbook();ws=wb.active;ws.title=str(sheet)[:31]
+    i=0;j=1
+    while i<len(cols_spec):
+        top,sub,key,fmt=cols_spec[i]
+        if top is None:
+            ws.merge_cells(start_row=1,start_column=j,end_row=2,end_column=j)
+            cell=ws.cell(row=1,column=j,value=sub)
+            cell.font=_HEADER_FONT;cell.fill=_HEADER_FILL;cell.border=_BORDER
+            cell.alignment=Alignment(horizontal="center",vertical="center",wrap_text=True)
+            ws.cell(row=2,column=j).fill=_HEADER_FILL;ws.cell(row=2,column=j).border=_BORDER
+            i+=1;j+=1
+        else:
+            span=0;k=i
+            while k<len(cols_spec) and cols_spec[k][0]==top:
+                span+=1;k+=1
+            if span>1:
+                ws.merge_cells(start_row=1,start_column=j,end_row=1,end_column=j+span-1)
+            topcell=ws.cell(row=1,column=j,value=top)
+            topcell.font=_HEADER_FONT;topcell.fill=_HEADER_FILL
+            topcell.alignment=Alignment(horizontal="center",vertical="center")
+            for s in range(span):
+                c2=ws.cell(row=2,column=j+s,value=cols_spec[i+s][1])
+                c2.font=_HEADER_FONT;c2.fill=_HEADER_FILL;c2.border=_BORDER
+                c2.alignment=Alignment(horizontal="center",vertical="center",wrap_text=True)
+                ws.cell(row=1,column=j+s).border=_BORDER
+            i=k;j+=span
+    for ri,(idx,rowdata) in enumerate(raw.iterrows()):
+        r=3+ri;is_tot=bool(is_total.get(idx,False))
+        for ci,(top,sub,key,fmt) in enumerate(cols_spec,1):
+            v=rowdata[key];cell=ws.cell(row=r,column=ci)
+            if fmt=="text":
+                cell.value="" if pd.isna(v) else v
+            elif fmt=="int":
+                cell.value=None if pd.isna(v) else int(round(v))
+                cell.number_format="#,##0"
+            elif fmt=="pct":
+                cell.value=None if pd.isna(v) else round(float(v),2)
+                cell.number_format='0.00"%"'
+            elif fmt=="flt":
+                cell.value=None if pd.isna(v) else round(float(v),2)
+                cell.number_format="0.00"
+            cell.border=_BORDER
+            cell.alignment=Alignment(vertical="center")
+            if is_tot:
+                cell.font=Font(bold=True);cell.fill=_TOTAL_FILL
+    ws.freeze_panes="C3"
+    _autosize(ws,len(cols_spec),header_row=2)
+    b=io.BytesIO();wb.save(b);return b.getvalue()
 
 def filters(df, cols):
     out=df.copy()
@@ -146,7 +248,7 @@ def group_summary(df, group_col, sem_col, metric_col, label="Kelompok"):
     out["Status"]=out["Kinerja Terakhir (%)"].apply(status)
     return out.sort_values("Kinerja Terakhir (%)",ascending=False)
 
-def render_group_section(f, group_col, sem_col, kin_col, label="Fakultas", icon="🏛️"):
+def render_group_section(f, group_col, sem_col, kin_col, label="Fakultas", icon="🏛️", key_prefix=""):
     st.subheader(f"{icon} Kinerja per {label}")
     pt=group_summary(f,group_col,sem_col,kin_col,label=label)
     if pt.empty:
@@ -162,6 +264,13 @@ def render_group_section(f, group_col, sem_col, kin_col, label="Fakultas", icon=
     st.plotly_chart(figp,use_container_width=True)
     naik=int((pt["Perubahan (poin)"]>0).sum());turun=int((pt["Perubahan (poin)"]<0).sum());tetap=int((pt["Perubahan (poin)"]==0).sum())
     st.markdown(f'<span class="small-note">📈 {naik} {label.lower()} naik · 📉 {turun} {label.lower()} turun · ➖ {tetap} {label.lower()} tetap dibanding semester sebelumnya.</span>',unsafe_allow_html=True)
+    xbytes=excel_bytes(show,sheet=f"Kinerja per {label}"[:31],
+                        col_formats={"Kinerja Terakhir (%)":'0.00"%"',"Kinerja Sebelumnya (%)":'0.00"%"',"Perubahan (poin)":'+0.00;-0.00;0.00'},
+                        badge_col="Status")
+    st.download_button(f"⬇️ Download Excel - Kinerja per {label}",xbytes,
+                        file_name=f"kinerja_per_{label.lower().replace(' ','_')}_{key_prefix}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key=f"dl_group_{label}_{key_prefix}")
 
 def render_kelas_pie(f, fak_col, kamp_col, id_kelas_col=None):
     st.subheader("🥧 Distribusi Jumlah Kelas")
@@ -246,6 +355,17 @@ def render_detail_perkuliahan(f, fak_col, prodi_col, hrs_had, nyt_had, hrs_tep, 
     ])
     st.dataframe(_style_totals(disp,is_total),use_container_width=True,hide_index=True)
     st.markdown('<span class="small-note">HRS = jumlah pertemuan seharusnya, NYT = jumlah pertemuan nyata/terlaksana.</span>',unsafe_allow_html=True)
+    cols_spec=[
+        (None,"Fakultas","Fakultas","text"),(None,"Prodi","Prodi","text"),
+        ("Kehadiran","HRS","hh","int"),("Kehadiran","NYT","nh","int"),("Kehadiran","%","ph","pct"),
+        ("Ketepatan Waktu","HRS","ht","int"),("Ketepatan Waktu","NYT","nt","int"),("Ketepatan Waktu","%","pt","pct"),
+        (None,"% Kinerja","pk","pct"),
+    ]
+    xbytes=excel_bytes_pivot(raw,cols_spec,is_total,sheet="Rincian Perkuliahan")
+    st.download_button("⬇️ Download Excel - Rincian per Fakultas & Prodi",xbytes,
+                        file_name="rincian_kinerja_perkuliahan_fakultas_prodi.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="dl_detail_per")
 
 def render_detail_ujian(f, fak_col, prodi_col, upload_col, hadir_col, entry_col, skala_col, kin_col):
     st.subheader("📋 Rincian Kinerja per Fakultas & Prodi")
@@ -295,6 +415,18 @@ def render_detail_ujian(f, fak_col, prodi_col, upload_col, hadir_col, entry_col,
         ("","Rata-Rata Skala"),("","% Kinerja"),
     ])
     st.dataframe(_style_totals(disp,is_total),use_container_width=True,hide_index=True)
+    cols_spec=[
+        (None,"Fakultas","Fakultas","text"),(None,"Prodi","Prodi","text"),
+        ("Kinerja Upload Soal","∑ Kelas","n","int"),("Kinerja Upload Soal","∑ Ontime","up_on","int"),("Kinerja Upload Soal","∑ Telat","up_tl","int"),("Kinerja Upload Soal","% Tepat Waktu","up_pct","pct"),
+        ("Kinerja Kehadiran Mengawas","∑ Kelas","n","int"),("Kinerja Kehadiran Mengawas","∑ Hadir","hd_on","int"),("Kinerja Kehadiran Mengawas","∑ Tidak Hadir","hd_tl","int"),("Kinerja Kehadiran Mengawas","% Tepat Waktu","hd_pct","pct"),
+        ("Kinerja Entry Nilai","∑ Kelas","n","int"),("Kinerja Entry Nilai","∑ Tepat Waktu","en_on","int"),("Kinerja Entry Nilai","∑ Telat Entry","en_tl","int"),("Kinerja Entry Nilai","% Tepat Waktu","en_pct","pct"),
+        (None,"Rata-Rata Skala","rata","flt"),(None,"% Kinerja","kinerja","pct"),
+    ]
+    xbytes=excel_bytes_pivot(raw,cols_spec,is_total,sheet="Rincian Ujian")
+    st.download_button("⬇️ Download Excel - Rincian per Fakultas & Prodi",xbytes,
+                        file_name="rincian_kinerja_ujian_fakultas_prodi.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="dl_detail_uji")
 
 def page_perkuliahan():
     df=read_excel_auto(PER_FILE)
@@ -313,16 +445,22 @@ def page_perkuliahan():
     st.subheader("📈 Tren Kinerja Semester")
     tr=f.groupby(sem,as_index=False)[[hadir,tepat,kin]].mean();tr["_k"]=tr[sem].map(semester_key);tr=tr.sort_values("_k")
     fig=px.line(tr,x=sem,y=[hadir,tepat,kin],markers=True);fig.update_yaxes(range=[0,100]);st.plotly_chart(fig,use_container_width=True)
-    render_group_section(f,fak,sem,kin,label="Fakultas")
-    render_group_section(f,prodi,sem,kin,label="Program Studi",icon="🏫")
+    render_group_section(f,fak,sem,kin,label="Fakultas",key_prefix="per")
+    render_group_section(f,prodi,sem,kin,label="Program Studi",icon="🏫",key_prefix="per")
     hrs_had=find_col(df,["KEHADIRAN HRS"]); nyt_had=find_col(df,["KEHADIRAN NYT"])
     hrs_tep=find_col(df,["KETEPATAN HRS"]); nyt_tep=find_col(df,["KETEPATAN NYT"])
     render_detail_perkuliahan(f,fak,prodi,hrs_had,nyt_had,hrs_tep,nyt_tep,kin)
     render_kelas_pie(f,fak,kamp,idkelas)
     st.subheader("🏆 Ranking Dosen")
     a,b=st.columns(2)
-    with a: st.markdown("**Top 10 Kinerja Tertinggi**");st.dataframe(ranking_table(agg,"Kinerja")[["Peringkat",name,"Kelas","Kehadiran","Ketepatan","Kinerja"]].round(1),use_container_width=True,hide_index=True)
-    with b: st.markdown("**Bottom 10 Kinerja Terendah**");st.dataframe(ranking_table(agg,"Kinerja",ascending=True)[["Peringkat",name,"Kelas","Kehadiran","Ketepatan","Kinerja"]].round(1),use_container_width=True,hide_index=True)
+    with a:
+        top10=ranking_table(agg,"Kinerja")[["Peringkat",name,"Kelas","Kehadiran","Ketepatan","Kinerja"]].round(1)
+        st.markdown("**Top 10 Kinerja Tertinggi**");st.dataframe(top10,use_container_width=True,hide_index=True)
+        st.download_button("⬇️ Download Excel",excel_bytes(top10,sheet="Top10 Perkuliahan",col_formats={"Kehadiran":'0.00"%"',"Ketepatan":'0.00"%"',"Kinerja":'0.00"%"'}),file_name="top10_kinerja_perkuliahan.xlsx",mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_top10_per")
+    with b:
+        bot10=ranking_table(agg,"Kinerja",ascending=True)[["Peringkat",name,"Kelas","Kehadiran","Ketepatan","Kinerja"]].round(1)
+        st.markdown("**Bottom 10 Kinerja Terendah**");st.dataframe(bot10,use_container_width=True,hide_index=True)
+        st.download_button("⬇️ Download Excel",excel_bytes(bot10,sheet="Bottom10 Perkuliahan",col_formats={"Kehadiran":'0.00"%"',"Ketepatan":'0.00"%"',"Kinerja":'0.00"%"'}),file_name="bottom10_kinerja_perkuliahan.xlsx",mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_bot10_per")
     st.subheader("🔎 Cari Kinerja Dosen")
     q=st.text_input("Nama dosen",placeholder="Ketik nama dosen...",key="qper")
     names=sorted(f[name].dropna().astype(str).unique()); matches=[x for x in names if q.lower() in x.lower()] if q else []
@@ -337,7 +475,7 @@ def page_perkuliahan():
         prof=df[df[name].astype(str)==selected].groupby(sem,as_index=False)[[hadir,tepat,kin]].mean();prof["_k"]=prof[sem].map(semester_key);prof=prof.sort_values("_k")
         fig=px.bar(prof,x=sem,y=[hadir,tepat,kin],barmode="group",title="Profil Kinerja Antarsemester");fig.update_yaxes(range=[0,100]);st.plotly_chart(fig,use_container_width=True)
         st.dataframe(d,use_container_width=True,hide_index=True)
-        st.download_button("⬇️ Download hasil pencarian Excel",excel_bytes(d,"Kinerja Perkuliahan"),file_name=f"kinerja_perkuliahan_{selected}.xlsx",mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        st.download_button("⬇️ Download hasil pencarian Excel",excel_bytes(d,"Kinerja Perkuliahan",col_formats={hadir:'0.00"%"',tepat:'0.00"%"',kin:'0.00"%"'}),file_name=f"kinerja_perkuliahan_{selected}.xlsx",mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_search_per")
     elif q: st.warning("Nama dosen tidak ditemukan.")
 
 def page_ujian():
@@ -356,15 +494,21 @@ def page_ujian():
     st.subheader("📈 Tren Kinerja Semester")
     tr=f.groupby(sem,as_index=False)[[upload,hadir,entry,kin]].mean();tr["_k"]=tr[sem].map(semester_key);tr=tr.sort_values("_k")
     fig=px.line(tr,x=sem,y=[upload,hadir,entry,kin],markers=True);fig.update_yaxes(range=[0,100]);st.plotly_chart(fig,use_container_width=True)
-    render_group_section(f,fak,sem,kin,label="Fakultas")
-    render_group_section(f,prodi,sem,kin,label="Program Studi",icon="🏫")
+    render_group_section(f,fak,sem,kin,label="Fakultas",key_prefix="uji")
+    render_group_section(f,prodi,sem,kin,label="Program Studi",icon="🏫",key_prefix="uji")
     skala=find_col(df,["Rata-Rata Skala","Rata Rata Skala"])
     render_detail_ujian(f,fak,prodi,upload,hadir,entry,skala,kin)
     render_kelas_pie(f,fak,kamp,idkelas)
     st.subheader("🏆 Ranking Dosen")
     a,b=st.columns(2)
-    with a:st.markdown("**Top 10 Kinerja Tertinggi**");st.dataframe(ranking_table(agg,"Kinerja")[["Peringkat",name,"Kelas","Upload","Kehadiran","Entry","Kinerja"]].round(1),use_container_width=True,hide_index=True)
-    with b:st.markdown("**Bottom 10 Kinerja Terendah**");st.dataframe(ranking_table(agg,"Kinerja",ascending=True)[["Peringkat",name,"Kelas","Upload","Kehadiran","Entry","Kinerja"]].round(1),use_container_width=True,hide_index=True)
+    with a:
+        top10=ranking_table(agg,"Kinerja")[["Peringkat",name,"Kelas","Upload","Kehadiran","Entry","Kinerja"]].round(1)
+        st.markdown("**Top 10 Kinerja Tertinggi**");st.dataframe(top10,use_container_width=True,hide_index=True)
+        st.download_button("⬇️ Download Excel",excel_bytes(top10,sheet="Top10 Ujian",col_formats={"Upload":'0.00"%"',"Kehadiran":'0.00"%"',"Entry":'0.00"%"',"Kinerja":'0.00"%"'}),file_name="top10_kinerja_ujian.xlsx",mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_top10_uji")
+    with b:
+        bot10=ranking_table(agg,"Kinerja",ascending=True)[["Peringkat",name,"Kelas","Upload","Kehadiran","Entry","Kinerja"]].round(1)
+        st.markdown("**Bottom 10 Kinerja Terendah**");st.dataframe(bot10,use_container_width=True,hide_index=True)
+        st.download_button("⬇️ Download Excel",excel_bytes(bot10,sheet="Bottom10 Ujian",col_formats={"Upload":'0.00"%"',"Kehadiran":'0.00"%"',"Entry":'0.00"%"',"Kinerja":'0.00"%"'}),file_name="bottom10_kinerja_ujian.xlsx",mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_bot10_uji")
     st.subheader("🔎 Cari Kinerja Dosen")
     q=st.text_input("Nama dosen",placeholder="Ketik nama dosen...",key="quji")
     names=sorted(f[name].dropna().astype(str).unique());matches=[x for x in names if q.lower() in x.lower()] if q else []
@@ -378,7 +522,7 @@ def page_ujian():
         prof=df[df[name].astype(str)==selected].groupby(sem,as_index=False)[[upload,hadir,entry,kin]].mean();prof["_k"]=prof[sem].map(semester_key);prof=prof.sort_values("_k")
         fig=px.bar(prof,x=sem,y=[upload,hadir,entry,kin],barmode="group",title="Profil Kinerja Antarsemester");fig.update_yaxes(range=[0,100]);st.plotly_chart(fig,use_container_width=True)
         st.dataframe(d,use_container_width=True,hide_index=True)
-        st.download_button("⬇️ Download hasil pencarian Excel",excel_bytes(d,"Kinerja Ujian"),file_name=f"kinerja_ujian_{selected}.xlsx",mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        st.download_button("⬇️ Download hasil pencarian Excel",excel_bytes(d,"Kinerja Ujian",col_formats={upload:'0.00"%"',hadir:'0.00"%"',entry:'0.00"%"',kin:'0.00"%"'}),file_name=f"kinerja_ujian_{selected}.xlsx",mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_search_uji")
     elif q:st.warning("Nama dosen tidak ditemukan.")
 
 st.sidebar.title("📊 Dashboard Internal")
