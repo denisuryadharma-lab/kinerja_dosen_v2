@@ -528,7 +528,7 @@ def page_ujian():
 st.sidebar.title("📊 Dashboard Internal")
 page=st.sidebar.radio("Pilih Dashboard",["Beranda","Kinerja Perkuliahan","Kinerja Ujian"])
 st.sidebar.caption("Pembaruan data: ganti file Excel lama di repository dengan file baru menggunakan nama file yang sama.")
-st.sidebar.caption("Powered By : Denny Suryadharma.")
+st.sidebar.caption("Powered By : Biro Operasional Perkuliahan.")
 if page=="Beranda":
     st.markdown("""<div style="text-align:center;padding:55px 10px 25px"><div class="small-note">DASHBOARD INTERNAL · KINERJA DOSEN</div><h1 style="font-size:3rem">Pilih Dashboard</h1><p>Kinerja perkuliahan dan kinerja ujian dosen. Data Kinerja Perkuliahan Meliputi : Kehadiran dan Ketepatan Waktu Mengajar. Data Kinerja Ujian Meliputi : Upload Soal, Kehadiran Mengawas dan Entry Nilai Mahasiswa</p></div>""",unsafe_allow_html=True)
     a,b=st.columns(2)
